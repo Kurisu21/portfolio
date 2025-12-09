@@ -1,0 +1,27 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-primary text-white font-sans;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-secondary;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-accent/50 rounded;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-accent;
+}

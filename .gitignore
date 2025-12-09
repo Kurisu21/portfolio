@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.development
+server/.env
+client/.env
+client/.env.production
+client/.env.local
+
+# Build outputs
+client/dist/
+client/build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Flowise
+.flowise/
+
+# Temporary files
+*.tmp
+.cache/
+
+FLOWISE_SETUP.md
+DEPLOYMENT.md

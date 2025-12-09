@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, X, Send, Loader2, Bot } from 'lucide-react';
+import { MessageSquare, X, Send, Loader2, Bot, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 
@@ -10,6 +10,8 @@ const Chatbot = () => {
     ]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [showLongLoadingBanner, setShowLongLoadingBanner] = useState(false);
+    const loadingTimeoutRef = useRef(null);
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -19,6 +21,30 @@ const Chatbot = () => {
     useEffect(() => {
         scrollToBottom();
     }, [messages, isOpen]);
+
+    // Handle long loading banner (15 seconds)
+    useEffect(() => {
+        if (isLoading) {
+            setShowLongLoadingBanner(false);
+            // Show banner after 15 seconds
+            loadingTimeoutRef.current = setTimeout(() => {
+                setShowLongLoadingBanner(true);
+            }, 15000);
+        } else {
+            // Clear timeout if loading stops
+            if (loadingTimeoutRef.current) {
+                clearTimeout(loadingTimeoutRef.current);
+                loadingTimeoutRef.current = null;
+            }
+            setShowLongLoadingBanner(false);
+        }
+
+        return () => {
+            if (loadingTimeoutRef.current) {
+                clearTimeout(loadingTimeoutRef.current);
+            }
+        };
+    }, [isLoading]);
 
     const handleSendMessage = async (e) => {
         e.preventDefault();
@@ -124,6 +150,31 @@ const Chatbot = () => {
                                     </div>
                                 </div>
                             )}
+                            
+                            {/* Long Loading Banner */}
+                            <AnimatePresence>
+                                {showLongLoadingBanner && isLoading && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 10 }}
+                                        className="bg-accent/10 border border-accent/30 rounded-lg p-3 mb-2"
+                                    >
+                                        <div className="flex items-start space-x-2">
+                                            <AlertCircle className="h-4 w-4 text-accent mt-0.5 flex-shrink-0" />
+                                            <div className="flex-1">
+                                                <p className="text-xs text-accent font-medium mb-1">
+                                                    Server is spinning up...
+                                                </p>
+                                                <p className="text-xs text-slate-400">
+                                                    Render free tier servers spin down after inactivity. This may take 30-60 seconds on first request.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                            
                             <div ref={messagesEndRef} />
                         </div>
 

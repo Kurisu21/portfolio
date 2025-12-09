@@ -39,7 +39,7 @@ const getAllowedOrigins = () => {
         }
         
         // Add specific Render frontend URL
-        origins.push('https://ij-ds4f.onrender.com');
+        origins.push('https://ij-tbk7.onrender.com');
         
         // If no origins specified, allow all (for flexibility)
         return origins.length > 0 ? origins : '*';

@@ -175,8 +175,15 @@ const moderateInput = (input) => {
         return { isValid: false, reason: 'Invalid input format' };
     }
 
-    // Normalize input for checking
-    const normalizedInput = input.trim();
+    // Normalize input for checking (decode common encodings to catch obfuscated attacks)
+    let normalizedInput = input.trim();
+    
+    // Decode URL encoding to catch obfuscated injection attempts
+    try {
+        normalizedInput = decodeURIComponent(normalizedInput);
+    } catch (e) {
+        // If decoding fails, use original input
+    }
 
     // Check for empty or very short inputs
     if (normalizedInput.length < 2) {
@@ -216,15 +223,183 @@ const moderateInput = (input) => {
         return { isValid: false, reason: 'Input contains too many special characters' };
     }
 
-    // Check for potential SQL injection or script injection patterns
-    const injectionPatterns = [
-        /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE)\b)/i,
-        /(<script|javascript:|onerror=|onload=)/i,
+    // Comprehensive SQL Injection patterns
+    const sqlInjectionPatterns = [
+        // Basic SQL commands
+        /\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE|TRUNCATE|MERGE)\b/i,
+        // SQL injection techniques
+        /(\bOR\b|\bAND\b)\s+['"]?\d+['"]?\s*=\s*['"]?\d+/i, // OR 1=1, AND 1=1
+        /\bUNION\s+(ALL\s+)?SELECT\b/i, // UNION SELECT
+        /(\bOR\b|\bAND\b)\s+['"]?1['"]?\s*=\s*['"]?1/i, // OR '1'='1
+        /;\s*(DROP|DELETE|TRUNCATE|ALTER)/i, // Command chaining
+        /(\bOR\b|\bAND\b)\s+['"]?['"]?\s*=\s*['"]?['"]?/i, // OR ''=''
+        /\b(SLEEP|WAITFOR|DELAY)\s*\(/i, // Time-based SQL injection
+        /\b(BENCHMARK|PG_SLEEP)\s*\(/i, // MySQL/PostgreSQL time delays
+        /(\bOR\b|\bAND\b)\s+\d+\s*=\s*\d+/i, // OR 1=1 variations
+        /\bINTO\s+(OUTFILE|DUMPFILE)\b/i, // File writing attempts
+        /\bLOAD_FILE\s*\(/i, // File reading attempts
+        /\bCONCAT\s*\(/i, // SQL string concatenation (often in injections)
+        /\bCHAR\s*\(/i, // SQL CHAR function (often used in obfuscation)
+        /\bASCII\s*\(/i, // SQL ASCII function
+        /\bSUBSTRING\s*\(/i, // SQL SUBSTRING (often in blind SQLi)
+        /\bCAST\s*\(/i, // SQL CAST (type conversion attacks)
+        /\bCONVERT\s*\(/i, // SQL CONVERT
+        /\bEXEC\s*\(/i, // SQL EXEC
+        /\bSP_EXECUTESQL\b/i, // SQL Server stored procedure
+        /\bXP_CMDSHELL\b/i, // SQL Server extended procedure
+        /\bINFORMATION_SCHEMA\b/i, // Database schema enumeration
+        /\bSYS\./i, // Oracle system tables
+        /\bpg_/i, // PostgreSQL system functions
     ];
 
-    for (const pattern of injectionPatterns) {
+    // XSS (Cross-Site Scripting) patterns
+    const xssPatterns = [
+        // Script tags
+        /<script[\s>]/i,
+        /<\/script>/i,
+        // JavaScript protocol
+        /javascript\s*:/i,
+        /data\s*:\s*text\/html/i, // Data URI with HTML
+        /vbscript\s*:/i, // VBScript protocol
+        // Event handlers
+        /\bon\w+\s*=/i, // onerror=, onclick=, onload=, etc.
+        /\bonerror\s*=/i,
+        /\bonload\s*=/i,
+        /\bonclick\s*=/i,
+        /\bonmouseover\s*=/i,
+        /\bonfocus\s*=/i,
+        /\bonblur\s*=/i,
+        // HTML injection
+        /<iframe[\s>]/i,
+        /<object[\s>]/i,
+        /<embed[\s>]/i,
+        /<link[\s>]/i,
+        /<meta[\s>]/i,
+        /<style[\s>]/i,
+        // SVG with script
+        /<svg[\s>].*<script/i,
+        // Expression injection (IE)
+        /expression\s*\(/i,
+        // Base64 encoded scripts
+        /data\s*:\s*text\/html;base64/i,
+        // HTML entities in suspicious contexts
+        /&#x?[0-9a-f]+;.*script/i,
+        // JavaScript functions commonly used in XSS
+        /\b(eval|Function|setTimeout|setInterval)\s*\(/i,
+        /\bdocument\.(cookie|write|writeln|location)/i,
+        /\bwindow\.(location|open|eval)/i,
+        /\binnerHTML\s*=/i,
+        /\bouterHTML\s*=/i,
+        /\bXMLHttpRequest/i,
+        /\bfetch\s*\(/i,
+    ];
+
+    // Command Injection patterns (context-aware to avoid false positives)
+    const commandInjectionPatterns = [
+        // Command chaining with suspicious commands
+        /;\s*(rm|cat|ls|pwd|whoami|id|uname|wget|curl|nc|netcat|sh|bash|cmd|powershell)/i,
+        /\|\s*(rm|cat|ls|pwd|whoami|id|uname|wget|curl|nc|netcat|sh|bash|cmd|powershell)/i,
+        // Command substitution (backticks and $())
+        /`[^`]*(rm|cat|ls|pwd|whoami|id|uname|wget|curl|nc|netcat|sh|bash|cmd|powershell)[^`]*`/i,
+        /\$\([^)]*(rm|cat|ls|pwd|whoami|id|uname|wget|curl|nc|netcat|sh|bash|cmd|powershell)[^)]*\)/i,
+        // Path traversal attempts (multiple occurrences)
+        /(\.\.\/){2,}/, // Multiple ../ (e.g., ../../)
+        /(\.\.\\){2,}/, // Multiple ..\ (e.g., ..\..\)
+        /\.\.%2F.*\.\.%2F/i, // URL encoded multiple ../
+        /\.\.%5C.*\.\.%5C/i, // URL encoded multiple ..\
+        // Windows command injection
+        /\b(cmd|powershell|pwsh)\s*\/[ck]/i,
+        // Unix command injection
+        /\b(sh|bash|zsh|ksh)\s+-c\s+['"]/i,
+        // Dangerous commands
+        /\b(rm\s+-rf|del\s+\/f|format\s+\w+|mkfs|dd\s+if=)/i,
+        // Process execution functions
+        /\b(exec|system|popen|shell_exec|passthru|proc_open)\s*\(/i,
+        // Suspicious shell variable usage
+        /\$\{[^}]*\}/, // ${variable} syntax
+        // Multiple command separators in sequence (highly suspicious)
+        /[;&|]{2,}/, // Multiple separators like ;; or && or ||
+    ];
+
+    // NoSQL Injection patterns
+    const nosqlInjectionPatterns = [
+        /\$where/i, // MongoDB $where
+        /\$ne\s*:/i, // MongoDB $ne (not equal)
+        /\$gt\s*:/i, // MongoDB $gt (greater than)
+        /\$lt\s*:/i, // MongoDB $lt (less than)
+        /\$regex/i, // MongoDB $regex
+        /\$exists/i, // MongoDB $exists
+        /\$in\s*:/i, // MongoDB $in
+        /\$nin\s*:/i, // MongoDB $nin (not in)
+        /\$or\s*:/i, // MongoDB $or
+        /\$and\s*:/i, // MongoDB $and
+        /\$nor\s*:/i, // MongoDB $nor
+        /\$not\s*:/i, // MongoDB $not
+        /\$size\s*:/i, // MongoDB $size
+        /\$type\s*:/i, // MongoDB $type
+        /\$elemMatch/i, // MongoDB $elemMatch
+        /\$text/i, // MongoDB $text
+        /\$mod\s*:/i, // MongoDB $mod
+        /\$all\s*:/i, // MongoDB $all
+    ];
+
+    // LDAP Injection patterns (context-aware)
+    const ldapInjectionPatterns = [
+        // LDAP filter injection patterns
+        /\(&[^)]*\)/, // LDAP AND filter
+        /\(\|[^)]*\)/, // LDAP OR filter
+        /\(![^)]*\)/, // LDAP NOT filter
+        /\*\)/, // Wildcard closing
+        // Multiple LDAP operators (suspicious)
+        /[&|!]{2,}/, // Multiple operators
+        // LDAP injection with user input patterns
+        /\([&|!].*[=<>].*\)/, // LDAP filter with operators
+    ];
+
+    // XML/XXE Injection patterns
+    const xmlInjectionPatterns = [
+        // External entity declarations (XXE)
+        /<!ENTITY\s+\w+\s+SYSTEM/i,
+        /<!ENTITY\s+\w+\s+PUBLIC/i,
+        /<!DOCTYPE\s+\w+[^>]*SYSTEM/i,
+        /<!DOCTYPE\s+\w+[^>]*PUBLIC/i,
+        // Entity references in suspicious contexts
+        /%[a-zA-Z0-9_]+;.*(file|http|ftp|php|expect):/i,
+        /&[a-zA-Z0-9_]+;.*(file|http|ftp|php|expect):/i,
+        // CDATA sections (can be used for obfuscation)
+        /<\!\[CDATA\[.*(script|eval|exec)/i,
+    ];
+
+    // Combine all injection patterns
+    const allInjectionPatterns = [
+        ...sqlInjectionPatterns,
+        ...xssPatterns,
+        ...commandInjectionPatterns,
+        ...nosqlInjectionPatterns,
+        ...ldapInjectionPatterns,
+        ...xmlInjectionPatterns,
+    ];
+
+    // Check for injection patterns
+    for (const pattern of allInjectionPatterns) {
         if (pattern.test(normalizedInput)) {
-            return { isValid: false, reason: 'Input contains potentially harmful code' };
+            return { isValid: false, reason: 'Input contains potentially harmful code or injection attempts' };
+        }
+    }
+
+    // Check for encoded injection attempts (double encoding, hex, etc.)
+    const encodedPatterns = [
+        /%3Cscript/i, // URL encoded <script
+        /%3C%2Fscript/i, // URL encoded </script
+        /&#60;script/i, // HTML entity <script
+        /&#x3C;script/i, // Hex entity <script
+        /\\x3Cscript/i, // Hex escape <script
+        /\\u003Cscript/i, // Unicode escape <script
+    ];
+
+    for (const pattern of encodedPatterns) {
+        if (pattern.test(input)) { // Check original input for encoded patterns
+            return { isValid: false, reason: 'Input contains encoded potentially harmful code' };
         }
     }
 
